@@ -3,12 +3,12 @@ import { css, html, LitElement, svg } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import pkg from "../package.json";
 
-class CircularTimerCard extends LitElement {
+class CircularCountdownCard extends LitElement {
 	constructor() {
 		super();
 
 		// Defaults
-		this._bins = 36;
+		this._bins = 14;
 		this._padAngle = 1;
 		this._cornerRadius = 4;
 		this._defaultTimerFill = getComputedStyle(
@@ -64,18 +64,25 @@ class CircularTimerCard extends LitElement {
 	}
 
 	setConfig(config) {
-		if (!config.entity) {
-			throw new Error("You need to provide entity!");
+		if (!config.entityStart) {
+			throw new Error("You need to provide start entity!");
+		}
+		if (!config.entityEnd) {
+			throw new Error("You need to provide end entity!");
 		}
 
-		var domain = config.entity.split(".")[0];
-		if (domain !== "timer") {
-			throw new Error("Provided entity is not a timer!");
+		var domainStart = config.entityStart.split(".")[0];
+		if (domainStart !== "input_date") {
+			throw new Error("Provided entity is not a date!");
+		}
+		var domainEnd = config.entityEnd.split(".")[0];
+		if (domainEnd !== "input_date") {
+			throw new Error("Provided entity is not a date!");
 		}
 
 		// Define the action config
 		this._actionConfig = {
-			entity: config.entity,
+			entity: config.entityStart,
 			hold_action: {
 				action: "more-info",
 				start_listening: true,
@@ -88,8 +95,16 @@ class CircularTimerCard extends LitElement {
 			}
 		}
 
+		this._stateObjStart = this.hass.states[this._config.entityStart];
+		this._stateObjEnd = this.hass.states[this._config.entityEnd];
+		const startDate = new Date(this._stateObjStart.state.ToString());
+		const endDate = new Date(this._stateObjEnd.state.ToString());
+		const msPerDay = 1000 * 60 * 60 * 24;
+		const diffMs = endDate - startDate;
+		const days = Math.floor(diffMs / msPerDay);
+		
 		if (config.bins) {
-			this._bins = config.bins;
+			this._bins = days;
 		}
 		this._seqmentSize = 360 / this._bins;
 
@@ -186,19 +201,23 @@ class CircularTimerCard extends LitElement {
 			return html``;
 		}
 
-		this._stateObj = this.hass.states[this._config.entity];
-		if (!this._stateObj) {
-			return html` <ha-card>Unknown entity: ${this._config.entity}</ha-card> `;
+		this._stateObjStart = this.hass.states[this._config.entityStart];
+		if (!this._stateObjStart) {
+			return html` <ha-card>Unknown start entity: ${this._config.entityStart}</ha-card> `;
+		}
+		this._stateObjEnd = this.hass.states[this._config.entityEnd];
+		if (!this._stateObjEnd) {
+			return html` <ha-card>Unknown end entity: ${this._config.entityEnd}</ha-card> `;
 		}
 
 		if (this._name == "use_entity_friendly_name") {
-			this._name = this._stateObj.attributes.friendly_name;
+			this._name = this._stateObjStart.attributes.friendly_name;
 		}
 
 		var icon;
 		var icon_style;
 		if (this._icon == "use_entity_icon") {
-			icon = this._stateObj.attributes.icon;
+			icon = this._stateObjStart.attributes.icon;
 		} else if (this._icon == "none") {
 			icon = "";
 			icon_style = "display:none;";
@@ -206,33 +225,28 @@ class CircularTimerCard extends LitElement {
 			icon = this._icon;
 		}
 
-		var a = this._stateObj.attributes.duration.split(":");
-		var d_sec = +a[0] * 60 * 60 + +a[1] * 60 + +a[2];
-		var rem_sec;
-		if (this._stateObj.state == "active") {
-			if (this._direction == "countup") {
-				rem_sec =
-					d_sec -
-					(Date.parse(this._stateObj.attributes.finishes_at) - new Date()) /
-						1000;
-			} else {
-				rem_sec =
-					(Date.parse(this._stateObj.attributes.finishes_at) - new Date()) /
-					1000;
-			}
+
+		const now = new Date();
+
+		// Parse HA datetime safely
+		const startDate = new Date(this._stateObjStart.state);
+		const endDate   = new Date(this._stateObjEnd.state);
+		// Total duration between start and end
+		const d_sec = (endDate - startDate) / 1000;
+
+		if (this._direction === "countup") {
+		    // Time between NOW and start
+		    rem_sec = (startDate - now) / 1000;
 		} else {
-			if (this._stateObj.state == "paused") {
-				var a1 = this._stateObj.attributes.remaining.split(":");
-				if (this._direction == "countup") {
-					rem_sec = d_sec - (+a1[0] * 60 * 60 + +a1[1] * 60 + +a1[2]);
-				} else {
-					rem_sec = +a1[0] * 60 * 60 + +a1[1] * 60 + +a1[2];
-				}
-			} else {
-				rem_sec = d_sec;
-			}
+		    // Default: time between NOW and end
+		    rem_sec = (endDate - now) / 1000;
 		}
-		var proc = rem_sec / d_sec;
+		
+		// Prevent negatives
+		rem_sec = Math.max(0, rem_sec);
+		
+		// Progress
+		const proc = rem_sec / d_sec;
 
 		var limitBin = Math.floor(this._bins * proc);
 		var colorData = this._generateArcColorData(limitBin);
@@ -269,7 +283,7 @@ class CircularTimerCard extends LitElement {
               ></ha-icon>
             </div>
             <div class="info">
-              <span class="primary">${primary_info}</span>
+              <span class="primary">Days to go ${limitBin}</span>
               <span
                 class="secondary"
                 style="font-size:${this._secondaryInfoSize};"
@@ -319,7 +333,7 @@ class CircularTimerCard extends LitElement {
                 fill="var(--secondary-text-color)"
                 style="font-size:${this._secondaryInfoSize};"
               >
-                ${primary_info}
+              Days to go ${limitBin}
               </text>
             </g>
           </svg>
@@ -560,9 +574,9 @@ class CircularTimerCard extends LitElement {
 	}
 }
 
-customElements.define("circular-timer-card", CircularTimerCard);
+customElements.define("circular-countdown-card", CircularCountdownCard);
 
 console.info(
-	`%c circular-timer-card | Version ${pkg.version} `,
+	`%c circular-countdown-card | Version ${pkg.version} `,
 	"color: white; font-weight: bold; background: #FF4F00",
 );
