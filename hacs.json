@@ -1,5 +1,5 @@
 {
-	"name": "Circular timer card",
-	"filename": "circular-timer-card.js",
+	"name": "Circular countdown card",
+	"filename": "circular-countdown-card.js",
 	"render_readme": true
 }
