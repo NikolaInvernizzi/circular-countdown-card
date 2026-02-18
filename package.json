@@ -1,7 +1,7 @@
 {
-	"name": "circular-timer-card",
+	"name": "circular-countdown-card",
 	"version": "0.1.0",
-	"description": "Circular timer card",
+	"description": "Circular countdown card",
 	"type": "module",
 	"scripts": {
 		"build": "rspack build",
