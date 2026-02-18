@@ -8,7 +8,7 @@ class CircularCountdownCard extends LitElement {
 		super();
 
 		// Defaults
-		this._bins = 14;
+		this._bins = undefined;
 		this._padAngle = 1;
 		this._cornerRadius = 4;
 		this._defaultTimerFill = getComputedStyle(
@@ -72,12 +72,12 @@ class CircularCountdownCard extends LitElement {
 		}
 
 		var domainStart = config.entityStart.split(".")[0];
-		if (domainStart !== "input_date") {
-			throw new Error("Provided entity is not a date!");
+		if (domainStart !== "input_datetime") {
+			throw new Error("Provided entity is not a date! ("+ domainStart +")");
 		}
 		var domainEnd = config.entityEnd.split(".")[0];
-		if (domainEnd !== "input_date") {
-			throw new Error("Provided entity is not a date!");
+		if (domainEnd !== "input_datetime") {
+			throw new Error("Provided entity is not a date! ("+ domainEnd +")");
 		}
 
 		// Define the action config
@@ -94,19 +94,10 @@ class CircularCountdownCard extends LitElement {
 				this._layout = "minimal";
 			}
 		}
-
-		this._stateObjStart = this.hass.states[this._config.entityStart];
-		this._stateObjEnd = this.hass.states[this._config.entityEnd];
-		const startDate = new Date(this._stateObjStart.state.ToString());
-		const endDate = new Date(this._stateObjEnd.state.ToString());
-		const msPerDay = 1000 * 60 * 60 * 24;
-		const diffMs = endDate - startDate;
-		const days = Math.floor(diffMs / msPerDay);
 		
 		if (config.bins) {
-			this._bins = days;
+			this._bins = config.bins;
 		}
-		this._seqmentSize = 360 / this._bins;
 
 		if (config.pad_angle) {
 			this._padAngle = config.pad_angle;
@@ -190,8 +181,8 @@ class CircularCountdownCard extends LitElement {
 			.cornerRadius(this._cornerRadius)
 			.padAngle(this._toRadians(this._padAngle));
 
-		this._arcData = this._generateArcData();
-		this._barData = this._generateBarData();
+		// this._arcData = this._generateArcData();
+		// this._barData = this._generateBarData();
 
 		this._config = config;
 	}
@@ -210,6 +201,24 @@ class CircularCountdownCard extends LitElement {
 			return html` <ha-card>Unknown end entity: ${this._config.entityEnd}</ha-card> `;
 		}
 
+		if(!this._bins){
+
+			// Parse dates
+			const startDate = new Date(this._stateObjStart.state);
+			const endDate   = new Date(this._stateObjEnd.state);
+			const msPerDay = 1000 * 60 * 60 * 24;
+
+			// Calculate bins dynamically
+			const days = Math.max(1, Math.floor((endDate - startDate) / msPerDay));
+			this._bins = days;
+			console.log(this._stateObjStart.state, this._stateObjEnd.state, days)
+			this._seqmentSize = 360 / this._bins;
+			
+			this._arcData = this._generateArcData();
+			this._barData = this._generateBarData();
+		}
+		
+
 		if (this._name == "use_entity_friendly_name") {
 			this._name = this._stateObjStart.attributes.friendly_name;
 		}
@@ -226,33 +235,30 @@ class CircularCountdownCard extends LitElement {
 		}
 
 
-		const now = new Date();
+
+		const now = this._toDateOnly(new Date());
 
 		// Parse HA datetime safely
 		const startDate = new Date(this._stateObjStart.state);
 		const endDate   = new Date(this._stateObjEnd.state);
 		// Total duration between start and end
-		const d_sec = (endDate - startDate) / 1000;
+		const d_sec = (endDate - startDate);
+		let proc;
 
 		if (this._direction === "countup") {
-		    // Time between NOW and start
-		    rem_sec = (startDate - now) / 1000;
-		} else {
-		    // Default: time between NOW and end
-		    rem_sec = (endDate - now) / 1000;
+			proc = (now - startDate) / d_sec;
+		} else { // countdown
+			proc = (endDate - now) / d_sec;
 		}
-		
-		// Prevent negatives
-		rem_sec = Math.max(0, rem_sec);
-		
-		// Progress
-		const proc = rem_sec / d_sec;
 
-		var limitBin = Math.floor(this._bins * proc);
+		// Clamp between 0 and 1
+		proc = Math.min(Math.max(proc, 0), 1);
+
+		const limitBin = Math.floor(this._bins * proc);
 		var colorData = this._generateArcColorData(limitBin);
 		var textColor = this._getTextColor(proc);
 
-		var display_rem_sec = this._getTimeString(rem_sec);
+		var display_rem_sec = Math.round(proc * 100); //this._getTimeString(rem_sec);
 
 		var primary_info;
 		if (this._primaryInfo == "none") {
@@ -399,6 +405,9 @@ class CircularCountdownCard extends LitElement {
 		return deg * (Math.PI / 180);
 	}
 
+	_toDateOnly(d) {
+		return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+	}
 	_getTimeString(s) {
 		var h = Math.floor(s / 3600);
 		var m = Math.floor((s % 3600) / 60);
