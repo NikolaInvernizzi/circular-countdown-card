@@ -1,3 +1,4 @@
+import "@webcomponents/webcomponentsjs/webcomponents-bundle.js";
 import * as d3 from "d3";
 import { css, html, LitElement, svg } from "lit";
 import { repeat } from "lit/directives/repeat.js";

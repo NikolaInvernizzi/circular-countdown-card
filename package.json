@@ -21,6 +21,7 @@
 		"@rspack/core": "^1.6.7"
 	},
 	"dependencies": {
+		"@webcomponents/webcomponentsjs": "^2.8.0",
 		"d3": "^7.9.0",
 		"lit": "^3.3.1"
 	}
