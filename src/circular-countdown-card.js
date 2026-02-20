@@ -337,7 +337,7 @@ class CircularCountdownCard extends LitElement {
         <ha-card>
 		  <ha-icon 
 			icon="${icon}"
-			style="${this._colorState ? `color: ${textColor}"` : `""`}; scale: 3; position: absolute; top: 30%; left: 47.5%;"
+			style="${this._colorState ? `color: ${textColor};scale: 3; position: absolute; top: 30%; left: 47.5%;` : `scale: 3; position: absolute; top: 30%; left: 47.5%;`}"
 		  ></ha-icon>
           <svg viewBox="0 0 100 100">
             <g transform="translate(50,50)">
