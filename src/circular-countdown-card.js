@@ -10,6 +10,7 @@ class CircularCountdownCard extends LitElement {
 
 		// Defaults
 		this._bins = undefined;
+		this._binsConstant = false;
 		this._padAngle = 1;
 		this._cornerRadius = 4;
 		this._defaultTimerFill = getComputedStyle(
@@ -19,15 +20,11 @@ class CircularCountdownCard extends LitElement {
 		this._defaultTimerEmptyFill = "#fdfdfd00";
 		this._secondaryInfoSize;
 		this._layout = "circle";
-
-		this._name = "use_entity_friendly_name";
-		this._icon = "use_entity_icon";
-		this._primaryInfo = "name";
-		this._secondaryInfo = "timer";
+		this._reverse_color = false;
+		this._icon = "";
+		this._primaryInfo = "[days] nights till the EVENT!";
+		this._secondaryInfo = "[proc]% days have passed";
 		this._direction = "countdown";
-		this._tapAction = "toggle";
-		this._holdAction = "more_info";
-		this._doubleTapAction = "cancel";
 
 		this._colorState = false;
 		this._stateColor = getComputedStyle(
@@ -40,21 +37,6 @@ class CircularCountdownCard extends LitElement {
 			this._timeUpdater++;
 		}, 500);
 
-		// Event listener bindings (https://developers.home-assistant.io/blog/2023/07/07/action-event-custom-cards/)
-
-		this.addEventListener("click", this._tap);
-
-		this._mouseIsDown = false;
-		this._mouseIsDownTriggered = false;
-		this._doubleClickTriggered = false;
-		this.addEventListener("mousedown", this._mousedown);
-		this.addEventListener("touchstart", this._mousedown);
-		this.addEventListener("mouseup", this._mouseup);
-		this.addEventListener("touchend", this._mouseup);
-
-		this.addEventListener("dblclick", this._double_tap);
-
-		////
 	}
 
 	static get properties() {
@@ -65,30 +47,50 @@ class CircularCountdownCard extends LitElement {
 	}
 
 	setConfig(config) {
-		if (!config.entityStart) {
-			throw new Error("You need to provide start entity!");
+		if (!config.start_date || !config.start_date_is) {
+			throw new Error("You need to provide start date (entity or constant date) and give which type it is!");
 		}
-		if (!config.entityEnd) {
-			throw new Error("You need to provide end entity!");
+		if(config.start_date_is === "entity"){
+			var domainStart = config.start_date.split(".")[0];
+			if (domainStart !== "input_datetime") {
+				throw new Error("Provided start date entity is not an input_datetime!");
+			}
+		}else if(config.start_date_is === "date"){
+			try {
+				var testDate = new Date(config.start_date);
+				if(testDate == "Invalid Date")
+					throw new Error("Provided end date string is not a valid date ")
+			}
+			catch(e){
+				throw new Error("Provided start date string is not a valid date ")
+			}
+		}else{
+				throw new Error("Start_date_is can only be 'entity' or 'date'")
 		}
+		this._start_date_is = config.start_date_is;
 
-		var domainStart = config.entityStart.split(".")[0];
-		if (domainStart !== "input_datetime") {
-			throw new Error("Provided entity is not a date! ("+ domainStart +")");
-		}
-		var domainEnd = config.entityEnd.split(".")[0];
-		if (domainEnd !== "input_datetime") {
-			throw new Error("Provided entity is not a date! ("+ domainEnd +")");
-		}
 
-		// Define the action config
-		this._actionConfig = {
-			entity: config.entityStart,
-			hold_action: {
-				action: "more-info",
-				start_listening: true,
-			},
-		};
+		if (!config.end_date || !config.end_date_is) {
+			throw new Error("You need to provide end date (entity or constant date) and give which type it is!");
+		}
+		if(config.end_date_is === "entity"){
+			var domainEnd = config.end_date.split(".")[0];
+			if (domainEnd !== "input_datetime") {
+				throw new Error("Provided end date entity is not an input_datetime!");
+			}
+		}else if(config.end_date_is === "date"){
+			try {
+				var testDate = new Date(config.end_date);
+				if(testDate == "Invalid Date")
+					throw new Error("Provided end date string is not a valid date ")
+			}
+			catch(e){
+				throw new Error("Provided end date string is not a valid date ")
+			}
+		}else{
+				throw new Error("End_date_is can only be 'entity' or 'date'")
+		}
+		this._end_date_is = config.end_date_is;
 
 		if (config.layout) {
 			if (config.layout === "minimal") {
@@ -96,8 +98,14 @@ class CircularCountdownCard extends LitElement {
 			}
 		}
 		
-		if (config.bins) {
-			this._bins = config.bins;
+		if(config.bins_constant)
+		{
+			if (!config.bins) 
+				throw new Error("You need to provide bins amount if bins are constant!");
+			this._bins_constant = config.bins_constant
+			this._bins = Math.min(200, config.bins);
+			this._arcData = this._generateArcData();
+			this._barData = this._generateBarData();
 		}
 
 		if (config.pad_angle) {
@@ -107,7 +115,9 @@ class CircularCountdownCard extends LitElement {
 		if (config.corner_radius) {
 			this._cornerRadius = config.corner_radius;
 		}
-
+		if(config.reverse_color){
+			this._reverse_color = config.reverse_color
+		}
 		if (config.color) {
 			if (config.color.length === 1) {
 				this._gradientColors = [config.color[0], config.color[0]];
@@ -134,10 +144,6 @@ class CircularCountdownCard extends LitElement {
 			}
 		}
 
-		if (config.name) {
-			this._name = config.name;
-		}
-
 		if (config.icon) {
 			this._icon = config.icon;
 		}
@@ -154,21 +160,10 @@ class CircularCountdownCard extends LitElement {
 			this._direction = config.direction;
 		}
 
-		if (config.tap_action) {
-			this._tapAction = config.tap_action;
-		}
-
-		if (config.hold_action) {
-			this._holdAction = config.hold_action;
-		}
-
-		if (config.double_tap_action) {
-			this._doubleTapAction = config.double_tap_action;
-		}
-
 		this._colorScale = d3.scaleSequential(
 			d3.interpolateRgbBasis(this._gradientColors),
 		);
+		
 		this._arc = d3
 			.arc()
 			.innerRadius(30)
@@ -182,9 +177,6 @@ class CircularCountdownCard extends LitElement {
 			.cornerRadius(this._cornerRadius)
 			.padAngle(this._toRadians(this._padAngle));
 
-		// this._arcData = this._generateArcData();
-		// this._barData = this._generateBarData();
-
 		this._config = config;
 	}
 
@@ -193,42 +185,89 @@ class CircularCountdownCard extends LitElement {
 			return html``;
 		}
 
-		this._stateObjStart = this.hass.states[this._config.entityStart];
-		if (!this._stateObjStart) {
-			return html` <ha-card>Unknown start entity: ${this._config.entityStart}</ha-card> `;
-		}
-		this._stateObjEnd = this.hass.states[this._config.entityEnd];
-		if (!this._stateObjEnd) {
-			return html` <ha-card>Unknown end entity: ${this._config.entityEnd}</ha-card> `;
-		}
+		// parse dates
+		let startDate;
+		let endDate;
 
-		if(!this._bins){
-
-			// Parse dates
-			const startDate = new Date(this._stateObjStart.state);
-			const endDate   = new Date(this._stateObjEnd.state);
-			const msPerDay = 1000 * 60 * 60 * 24;
-
-			// Calculate bins dynamically
-			const days = Math.max(1, Math.floor((endDate - startDate) / msPerDay));
-			this._bins = days;
-			console.log(this._stateObjStart.state, this._stateObjEnd.state, days)
-			this._seqmentSize = 360 / this._bins;
+		if(this._start_date_is == "entity"){
+			this._stateObjStart = this.hass.states[this._config.start_date];
+			if (!this._stateObjStart) {
+				return html` <ha-card>Unknown start entity: ${this._config.start_date}</ha-card> `;
+			}
+			startDate = new Date(this._stateObjStart.state);
+		}else if(this._start_date_is == "date"){
 			
+			startDate = new Date(this._config.start_date);
+			if(startDate == "Invalid Date"){
+				return html` <ha-card>Invalid start entity/date: ${this._config.start_date}</ha-card> `;
+			}
+		}else{
+			return html` <ha-card>Invalid start entity/date: ${this._config.start_date}</ha-card> `;
+		}
+
+		if(this._end_date_is == "entity"){
+			this._stateObjEnd = this.hass.states[this._config.end_date];
+			if (!this._stateObjEnd) {
+				return html` <ha-card>Unknown end entity: ${this._config.end_date}</ha-card> `;
+			}
+			endDate   = new Date(this._stateObjEnd.state);
+		}else if(this._end_date_is == "date"){
+			
+			endDate = new Date(this._config.end_date);
+			if(endDate == "Invalid Date"){
+				return html` <ha-card>Invalid end entity/date: ${this._config.end_date}</ha-card> `;
+			}
+		}else{
+			return html` <ha-card>Invalid end entity/date: ${this._config.end_date}</ha-card> `;
+		}
+
+		
+		const msPerDay = 1000 * 60 * 60 * 24;
+		const days = Math.max(1, Math.floor((endDate - startDate) / msPerDay));
+
+		if(!this._bins_constant) {
+			// Calculate bins dynamically
+			this._bins = Math.min(days, 200);
+			this._seqmentSize = 360 / this._bins;
+
+			// todo optimize, no need to calculate every frame
 			this._arcData = this._generateArcData();
 			this._barData = this._generateBarData();
 		}
-		
 
-		if (this._name == "use_entity_friendly_name") {
-			this._name = this._stateObjStart.attributes.friendly_name;
+		const now = this._toDateOnly(new Date());
+
+		// Total duration between start and end
+		const d_sec = (endDate - startDate); // 23 - 11 = 12
+		
+		let proc;
+		let limitBin;
+		let daysToGo = (endDate - now) / msPerDay;
+		if (this._direction === "countup") {
+			proc = (now - startDate) / d_sec;  // 19 - 11 = 8   => 8 / 12 = 0.66
+	
+			// Clamp between 0 and 1
+			proc = Math.min(Math.max(proc, 0), 1);
+			limitBin = Math.ceil(this._bins * proc); 
+			daysToGo = Math.floor(daysToGo);
+			// countup: 12 * 0.66 = 8
+
+		} else { // countdown
+			proc = (endDate - now) / d_sec;  // 23 - 19 = 4   	=> 4 / 12 = 0.33
+			
+			// Clamp between 0 and 1
+			proc = Math.min(Math.max(proc, 0), 1);
+			limitBin = Math.floor(this._bins * proc);   
+			daysToGo = Math.floor(daysToGo);
+			// countdown:  12 * 0.33 = 4
 		}
+
+		var colorData = this._generateArcColorData(limitBin);
+		var textColor = this._getTextColor(proc);
 
 		var icon;
 		var icon_style;
-		if (this._icon == "use_entity_icon") {
-			icon = this._stateObjStart.attributes.icon;
-		} else if (this._icon == "none") {
+		if (this._icon == "none") {
 			icon = "";
 			icon_style = "display:none;";
 		} else {
@@ -236,47 +275,30 @@ class CircularCountdownCard extends LitElement {
 		}
 
 
-
-		const now = this._toDateOnly(new Date());
-
-		// Parse HA datetime safely
-		const startDate = new Date(this._stateObjStart.state);
-		const endDate   = new Date(this._stateObjEnd.state);
-		// Total duration between start and end
-		const d_sec = (endDate - startDate);
-		let proc;
-
-		if (this._direction === "countup") {
-			proc = (now - startDate) / d_sec;
-		} else { // countdown
-			proc = (endDate - now) / d_sec;
-		}
-
-		// Clamp between 0 and 1
-		proc = Math.min(Math.max(proc, 0), 1);
-
-		const limitBin = Math.floor(this._bins * proc);
-		var colorData = this._generateArcColorData(limitBin);
-		var textColor = this._getTextColor(proc);
-
-		var display_rem_sec = Math.round(proc * 100); //this._getTimeString(rem_sec);
-
-		var primary_info;
-		if (this._primaryInfo == "none") {
+		var primary_info = "";
+		if (!this._primaryInfo || this._primaryInfo == "none") {
 			primary_info = "";
-		} else if (this._primaryInfo == "timer") {
-			primary_info = display_rem_sec;
 		} else {
-			primary_info = this._name;
+			if(!this._primaryInfo)
+				this._primaryInfo = "";
+			
+			primary_info =  this._primaryInfo.replace("[days]", daysToGo)
+				.replace("[proc]", Math.round(proc * 100))
+				.replace("[startdate]", startDate.toDateString())
+				.replace("[enddate]", endDate.toDateString());
 		}
 
-		var secondary_info;
-		if (this._secondaryInfo == "none") {
+		var secondary_info = "";
+		if (!this._secondaryInfo || this._secondaryInfo == "none") {
 			secondary_info = "";
-		} else if (this._secondaryInfo == "name") {
-			secondary_info = this._name;
 		} else {
-			secondary_info = display_rem_sec;
+			if(!this._secondaryInfo)
+				this._secondaryInfo = "";
+
+			secondary_info = this._secondaryInfo.replace("[days]", daysToGo)
+				.replace("[proc]", Math.round(proc * 100))
+				.replace("[startdate]", startDate.toDateString())
+				.replace("[enddate]", endDate.toDateString());
 		}
 
 		if (this._layout === "minimal") {
@@ -290,7 +312,7 @@ class CircularCountdownCard extends LitElement {
               ></ha-icon>
             </div>
             <div class="info">
-              <span class="primary">Days to go ${limitBin}</span>
+              <span class="primary">${primary_info}</span>
               <span
                 class="secondary"
                 style="font-size:${this._secondaryInfoSize};"
@@ -313,6 +335,10 @@ class CircularCountdownCard extends LitElement {
 		} else {
 			return html`
         <ha-card>
+		  <ha-icon 
+			icon="${icon}"
+			style="${this._colorState ? `color: ${textColor}"` : `""`}; scale: 3; position: absolute; top: 30%; left: 47.5%;"
+		  ></ha-icon>
           <svg viewBox="0 0 100 100">
             <g transform="translate(50,50)">
               ${repeat(
@@ -322,6 +348,7 @@ class CircularCountdownCard extends LitElement {
 									svg`<path class="arc" d=${d.arc} fill=${colorData[index]} />`,
 							)}
             </g>
+			
             <g transform="translate(50,50)">
               <text
                 id="countdown"
@@ -329,7 +356,7 @@ class CircularCountdownCard extends LitElement {
                 dominant-baseline="central"
                 fill=${textColor}
               >
-                ${secondary_info}
+                ${primary_info}
               </text>
             </g>
             <g transform="translate(50,62)">
@@ -340,7 +367,7 @@ class CircularCountdownCard extends LitElement {
                 fill="var(--secondary-text-color)"
                 style="font-size:${this._secondaryInfoSize};"
               >
-              Days to go ${limitBin}
+			  ${secondary_info}
               </text>
             </g>
           </svg>
@@ -381,10 +408,14 @@ class CircularCountdownCard extends LitElement {
 
 	_generateArcColorData(limitBin) {
 		var data = [];
+		let reverse = this._reverse_color
 		for (var i = 0; i < this._bins; i++) {
 			var color;
-			if (i < limitBin) {
-				color = this._colorScale(i / (this._bins - 1));
+			if ((!reverse && i < limitBin) || (reverse && i >= limitBin)) {
+				let scale = i / (this._bins - 1);
+				if(reverse)
+					scale = 1 - scale;
+				color = this._colorScale(scale);
 			} else {
 				color = this._defaultTimerEmptyFill;
 			}
@@ -396,7 +427,10 @@ class CircularCountdownCard extends LitElement {
 
 	_getTextColor(proc) {
 		if (this._colorState) {
-			return this._colorScale(proc);
+			let scale = proc;
+			if(this._reverse_color)
+				scale = 1 - scale;
+			return this._colorScale(scale);
 		} else {
 			return this._stateColor;
 		}
@@ -409,95 +443,7 @@ class CircularCountdownCard extends LitElement {
 	_toDateOnly(d) {
 		return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 	}
-	_getTimeString(s) {
-		var h = Math.floor(s / 3600);
-		var m = Math.floor((s % 3600) / 60);
-		var s = Math.floor((s % 3600) % 60);
-
-		var hours = h.toString().padStart(2, "0");
-		var minutes = m.toString().padStart(2, "0");
-		var seconds = s.toString().padStart(2, "0");
-
-		return `${hours}:${minutes}:${seconds}`;
-	}
-
-	_toggle_func() {
-		const stateObj = this.hass.states[this._config.entity];
-		const service = stateObj.state === "active" ? "pause" : "start";
-		this.hass.callService("timer", service, { entity_id: this._config.entity });
-	}
-
-	_cancel_func() {
-		const stateObj = this.hass.states[this._config.entity];
-		this.hass.callService("timer", "cancel", {
-			entity_id: this._config.entity,
-		});
-	}
-
-	_moreInfo_func() {
-		var event = new Event("hass-action", {
-			bubbles: true,
-			composed: true,
-		});
-		event.detail = {
-			config: this._actionConfig,
-			action: "hold",
-		};
-		this.dispatchEvent(event);
-	}
-
-	_tap(e) {
-		if (this._mouseIsDownTriggered == false) {
-			setTimeout(() => {
-				if (this._doubleClickTriggered == false) {
-					if (this._tapAction == "toggle") {
-						this._toggle_func();
-					} else if (this._tapAction == "more_info") {
-						this._moreInfo_func();
-					} else if (this._tapAction == "cancel") {
-						this._cancel_func();
-					}
-				}
-			}, 200);
-		}
-	}
-
-	_double_tap(e) {
-		this._doubleClickTriggered = true;
-		if (this._doubleTapAction == "toggle") {
-			this._toggle_func();
-		} else if (this._doubleTapAction == "more_info") {
-			this._moreInfo_func();
-		} else if (this._doubleTapAction == "cancel") {
-			this._cancel_func();
-		}
-		setTimeout(() => {
-			this._doubleClickTriggered = false;
-		}, 500);
-	}
-
-	_mousedown(e) {
-		this._mouseIsDown = true;
-		setTimeout(() => {
-			if (this._mouseIsDown) {
-				this._mouseIsDownTriggered = true;
-				if (this._holdAction == "toggle") {
-					this._toggle_func();
-				} else if (this._holdAction == "more_info") {
-					this._moreInfo_func();
-				} else if (this._holdAction == "cancel") {
-					this._cancel_func();
-				}
-			}
-		}, 1000);
-	}
-
-	_mouseup(e) {
-		setTimeout(() => {
-			this._mouseIsDown = false;
-			this._mouseIsDownTriggered = false;
-		}, 100);
-	}
+	
 
 	static get styles() {
 		return css`
